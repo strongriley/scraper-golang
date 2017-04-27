@@ -3,28 +3,31 @@ package main
 import (
 	"flag"
 	"fmt"
-	"time"
+	// "time"
 )
 
 var (
 	FirstUrl = flag.String("url", "http://rileystrong.com", "The first URL to visit")
-	NWorkers = flag.Int("n", 2, "The max number of concurrent workers")
+	NWorkers = flag.Int("n", 10, "The max number of concurrent workers")
 	MaxUrls = flag.Int("m", 5, "The max URLs to visit before stopping. Not a strong guarantee")
 )
 
 func worker(id int, queue <-chan *UrlNode, nextUrl chan<- *UrlNode, completions chan<- *UrlNode) {
-    for u := range queue {
-		u.Process()
+    for urlNode := range queue {
+		urlNode.Process()
 		// Bubble up in the background so not blocking & cause worker deadlock
-		go func() {
-			defer func() {completions <- u}()
-			for _, urlStr := range u.linkedUrls {
+		// Must pass in by argument vs closure since worker's re-used
+		go func(deferredUrlNode *UrlNode) {
+			defer func() {completions <- deferredUrlNode}()
+			for _, urlStr := range deferredUrlNode.LinkedUrls {
 				new_u, err := NewUrlNode(urlStr)
+				// fmt.Println("after NewUrlNode list", deferredUrlNode.LinkedUrls)
+				// fmt.Println("enqueueing", new_u)
 				if err == nil {
 					nextUrl <- new_u // blocks until worker picks it up
 				}
 			}
-		}()
+		}(urlNode)
     }
 }
 
@@ -39,6 +42,7 @@ func main() {
 	// ints, but nice to do everything just with channels.
 	enqueued := 0 // Ensure we keep waiting when URLs are in the queue
 	urlsVisited := make(map[string]bool)
+	urlsVisiting := make(map[string]bool)
 
 	// Seed with first URL
 	urlNode, err := NewUrlNode(*FirstUrl)
@@ -47,35 +51,34 @@ func main() {
 	}
 	queue <- urlNode
 	enqueued++ // TODO(riley): DRY this out. Dup'd below
+	urlsVisiting[urlNode.UrlString] = true
 
 	// Start all the workers
 	for w := 1; w <= *NWorkers; w++ {
 		go worker(w, queue, nextUrl, completions)
 	}
 
+	fmt.Println("[")
 	// Keep going so long as there are URLs to process or we reach the max
 	for {
 		done := false
 		select {
 			case u := <- nextUrl:
-				// NB(riley): Race conditions may result in the same URL being
-				// procesed twice
-				// TODO(riley): fix race conditions
-				_, exists := urlsVisited[u.url.String()]
+				_, exists := urlsVisiting[u.UrlString]
 				if !exists {
 					queue <- u
 					enqueued++
-				} else {
-					fmt.Println("skipping", u)
+					urlsVisiting[u.UrlString] = true
 				}
-			case u := <- completions:
+			case completed := <- completions:
 				enqueued--
-				urlsVisited[u.url.String()] = true
-				fmt.Println(u.url.String())
-				u.PrintResults()
+				urlsVisited[completed.UrlString] = true
+				if len(urlsVisited) > 1 {
+					fmt.Print(",\n") // Proper JSON formatting
+				}
+				completed.PrintResults()
 			default:
 				if enqueued == 0 {
-					fmt.Println("Nothing left to do, ending")
 					done = true
 				}
 		}
@@ -83,8 +86,9 @@ func main() {
 			break
 		}
 	}
+	fmt.Print("\n]\n")
 
-	// Leave some time to show concurrent actions continuing
-	fmt.Println("exit")
-	time.Sleep(100 * time.Millisecond)
+	// Leave some time to show concurrent actions continuing for debugging
+	// fmt.Println("exit")
+	// time.Sleep(100 * time.Millisecond)
 }
