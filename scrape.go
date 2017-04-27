@@ -65,7 +65,7 @@ func main() {
 		select {
 			case u := <- nextUrl:
 				_, exists := urlsVisiting[u.UrlString]
-				if !exists {
+				if !exists && len(urlsVisited) < *MaxUrls {
 					queue <- u
 					enqueued++
 					urlsVisiting[u.UrlString] = true
