@@ -9,7 +9,7 @@ import (
 var (
 	FirstUrl = flag.String("url", "http://rileystrong.com", "The first URL to visit")
 	NWorkers = flag.Int("n", 10, "The max number of concurrent workers")
-	MaxUrls = flag.Int("m", 5, "The max URLs to visit before stopping. Not a strong guarantee")
+	MaxUrls = flag.Int("m", 10, "The max URLs to visit before stopping.")
 )
 
 func worker(id int, queue <-chan *UrlNode, nextUrl chan<- *UrlNode, completions chan<- *UrlNode) {
@@ -49,8 +49,10 @@ func main() {
 	if err != nil {
 		panic(err) // First URL failed - quit
 	}
+
+	// TODO(riley): DRY this out. Dup'd below
 	queue <- urlNode
-	enqueued++ // TODO(riley): DRY this out. Dup'd below
+	enqueued++ 
 	urlsVisiting[urlNode.UrlString] = true
 
 	// Start all the workers
@@ -58,7 +60,7 @@ func main() {
 		go worker(w, queue, nextUrl, completions)
 	}
 
-	fmt.Println("[")
+	fmt.Println("[") // Manual JSON :-/
 	// Keep going so long as there are URLs to process or we reach the max
 	for {
 		done := false
@@ -78,15 +80,13 @@ func main() {
 				}
 				completed.PrintResults()
 			default:
-				if enqueued == 0 {
-					done = true
-				}
+				done = (enqueued == 0)
 		}
 		if done || len(urlsVisited) >= *MaxUrls  {
 			break
 		}
 	}
-	fmt.Print("\n]\n")
+	fmt.Print("\n]\n") // Manual JSON :-/
 
 	// Leave some time to show concurrent actions continuing for debugging
 	// fmt.Println("exit")

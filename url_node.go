@@ -24,14 +24,13 @@ type UrlNode struct {
 }
 
 func NewUrlNode(u string) (*UrlNode, error) {
-	// TODO(riley): Don't repeat yourself. See parsing below
-	u = strings.TrimRight(strings.Split(u, "#")[0], "/")
+	u = cleanupUrl(u)
 	formattedUrl, err := url.ParseRequestURI(u)
 	if err != nil {
 		// TODO(riley): proper handling if bad URL given?
 		return nil, err
 	}
-	node := &UrlNode{
+	node := UrlNode{
 		BaseUrl: formattedUrl,
 		UrlString: formattedUrl.String(),
 		StaticUrls: make([]string, 0),
@@ -39,7 +38,7 @@ func NewUrlNode(u string) (*UrlNode, error) {
 		staticUrlsMap: map[string]bool{},
 		linkedUrlsMap: map[string]bool{},
 	}
-	return node, nil
+	return &node, nil
 }
 
 func (u *UrlNode) String() string {
@@ -85,16 +84,14 @@ func (u *UrlNode) Process() {
 				u.addStaticUrl(val)
 		}
 	}
-	// Step 3: Printing is called by the main thread
-	// fmt.Println("urls end of Process: ", u.LinkedUrls)
+	// Step 3: Printing is called by the main goroutine
 }
 
 func (u *UrlNode) addLinkedUrl(foundUrlStr string) {
 	if foundUrlStr == "" {
 		return
 	}
-	// Remove anchors and trailing slashes
-	foundUrlStr = strings.TrimRight(strings.Split(foundUrlStr, "#")[0], "/")
+	foundUrlStr = cleanupUrl(foundUrlStr)
 	foundUrl, err := url.Parse(foundUrlStr)
 	if err != nil {
 		return // Skip silently
@@ -149,4 +146,9 @@ func getTokenKey(token html.Token, key string) string {
 		}
 	}
 	return ""
+}
+
+// Remove anchors and trailing slashes
+func cleanupUrl(urlStr string) string {
+	return strings.TrimRight(strings.Split(urlStr, "#")[0], "/")
 }
