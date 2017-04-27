@@ -3,17 +3,17 @@ package main
 import (
 	// "fmt"
 	"bytes"
-	"os"
-	"strings"
+	"encoding/json"
+	"golang.org/x/net/html"
 	"net/http"
 	"net/url"
-	"golang.org/x/net/html"
-	"encoding/json"
+	"os"
+	"strings"
 )
 
 type UrlNode struct {
-	BaseUrl *url.URL `json:"-"`
-	UrlString string `json:"url"`
+	BaseUrl   *url.URL `json:"-"`
+	UrlString string   `json:"url"`
 	// For deterministic ordering
 	StaticUrls []string `json:"static_urls"`
 	LinkedUrls []string `json:"linked_urls"`
@@ -31,10 +31,10 @@ func NewUrlNode(u string) (*UrlNode, error) {
 		return nil, err
 	}
 	node := UrlNode{
-		BaseUrl: formattedUrl,
-		UrlString: formattedUrl.String(),
-		StaticUrls: make([]string, 0),
-		LinkedUrls: make([]string, 0),
+		BaseUrl:       formattedUrl,
+		UrlString:     formattedUrl.String(),
+		StaticUrls:    make([]string, 0),
+		LinkedUrls:    make([]string, 0),
 		staticUrlsMap: map[string]bool{},
 		linkedUrlsMap: map[string]bool{},
 	}
@@ -64,24 +64,24 @@ func (u *UrlNode) Process() {
 		token := page.Token()
 		var val string
 		switch token.Data {
-			case "a":
-				val = getTokenKey(token, "href")
-				u.addLinkedUrl(val)
-			case "link":
-				val = getTokenKey(token, "href")
-				rel := getTokenKey(token, "rel")
-				if rel == "stylesheet" {
-					u.addStaticUrl(val)
-				}
-			case "img":
-				val = getTokenKey(token, "src")
-				// Avoid embedded data
-				if strings.HasPrefix(val, "http") {
-					u.addStaticUrl(val)
-				}
-			case "script":
-				val = getTokenKey(token, "src")
+		case "a":
+			val = getTokenKey(token, "href")
+			u.addLinkedUrl(val)
+		case "link":
+			val = getTokenKey(token, "href")
+			rel := getTokenKey(token, "rel")
+			if rel == "stylesheet" {
 				u.addStaticUrl(val)
+			}
+		case "img":
+			val = getTokenKey(token, "src")
+			// Avoid embedded data
+			if strings.HasPrefix(val, "http") {
+				u.addStaticUrl(val)
+			}
+		case "script":
+			val = getTokenKey(token, "src")
+			u.addStaticUrl(val)
 		}
 	}
 	// Step 3: Printing is called by the main goroutine

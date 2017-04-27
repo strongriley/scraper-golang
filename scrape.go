@@ -9,16 +9,16 @@ import (
 var (
 	FirstUrl = flag.String("url", "http://rileystrong.com", "The first URL to visit")
 	NWorkers = flag.Int("n", 10, "The max number of concurrent workers")
-	MaxUrls = flag.Int("m", 10, "The max URLs to visit before stopping.")
+	MaxUrls  = flag.Int("m", 10, "The max URLs to visit before stopping.")
 )
 
 func worker(id int, queue <-chan *UrlNode, nextUrl chan<- *UrlNode, completions chan<- *UrlNode) {
-    for urlNode := range queue {
+	for urlNode := range queue {
 		urlNode.Process()
 		// Bubble up in the background so not blocking & cause worker deadlock
 		// Must pass in by argument vs closure since worker's re-used
 		go func(deferredUrlNode *UrlNode) {
-			defer func() {completions <- deferredUrlNode}()
+			defer func() { completions <- deferredUrlNode }()
 			for _, urlStr := range deferredUrlNode.LinkedUrls {
 				new_u, err := NewUrlNode(urlStr)
 				// fmt.Println("after NewUrlNode list", deferredUrlNode.LinkedUrls)
@@ -28,14 +28,14 @@ func worker(id int, queue <-chan *UrlNode, nextUrl chan<- *UrlNode, completions 
 				}
 			}
 		}(urlNode)
-    }
+	}
 }
 
 func main() {
 	flag.Parse()
 
 	queue := make(chan *UrlNode, 100) // TODO(riley): not sure optimal size
-	nextUrl := make(chan *UrlNode) // must be blocking to avoid race conditions
+	nextUrl := make(chan *UrlNode)    // must be blocking to avoid race conditions
 	completions := make(chan *UrlNode)
 
 	// Both urlsVisited and enqueued and  probably could be managed with atomic
@@ -52,7 +52,7 @@ func main() {
 
 	// TODO(riley): DRY this out. Dup'd below
 	queue <- urlNode
-	enqueued++ 
+	enqueued++
 	urlsVisiting[urlNode.UrlString] = true
 
 	// Start all the workers
@@ -65,24 +65,24 @@ func main() {
 	for {
 		done := false
 		select {
-			case u := <- nextUrl:
-				_, exists := urlsVisiting[u.UrlString]
-				if !exists && len(urlsVisited) < *MaxUrls {
-					queue <- u
-					enqueued++
-					urlsVisiting[u.UrlString] = true
-				}
-			case completed := <- completions:
-				enqueued--
-				urlsVisited[completed.UrlString] = true
-				if len(urlsVisited) > 1 {
-					fmt.Print(",\n") // Proper JSON formatting
-				}
-				completed.PrintResults()
-			default:
-				done = (enqueued == 0)
+		case u := <-nextUrl:
+			_, exists := urlsVisiting[u.UrlString]
+			if !exists && len(urlsVisited) < *MaxUrls {
+				queue <- u
+				enqueued++
+				urlsVisiting[u.UrlString] = true
+			}
+		case completed := <-completions:
+			enqueued--
+			urlsVisited[completed.UrlString] = true
+			if len(urlsVisited) > 1 {
+				fmt.Print(",\n") // Proper JSON formatting
+			}
+			completed.PrintResults()
+		default:
+			done = (enqueued == 0)
 		}
-		if done || len(urlsVisited) >= *MaxUrls  {
+		if done || len(urlsVisited) >= *MaxUrls {
 			break
 		}
 	}
