@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	// "fmt"
 	"bytes"
 	"os"
 	"strings"
@@ -12,19 +12,15 @@ import (
 )
 
 type UrlNode struct {
-	url *url.URL `json:"url"`
+	BaseUrl *url.URL `json:"-"`
+	UrlString string `json:"url"`
 	// For deterministic ordering
-	staticUrls []string `json:"static_urls"`
-	linkedUrls []string
+	StaticUrls []string `json:"static_urls"`
+	LinkedUrls []string `json:"linked_urls"`
 
 	// For constant time de-duping
 	staticUrlsMap map[string]bool
 	linkedUrlsMap map[string]bool
-}
-
-type PrintUrl struct {
-	Url string  `json:"url"`
-	StaticAssets []string  `json:"static_assets"`
 }
 
 func NewUrlNode(u string) (*UrlNode, error) {
@@ -35,18 +31,19 @@ func NewUrlNode(u string) (*UrlNode, error) {
 		// TODO(riley): proper handling if bad URL given?
 		return nil, err
 	}
-	node := UrlNode{
-		url: formattedUrl,
-		staticUrls: []string{},
-		linkedUrls: []string{},
+	node := &UrlNode{
+		BaseUrl: formattedUrl,
+		UrlString: formattedUrl.String(),
+		StaticUrls: make([]string, 0),
+		LinkedUrls: make([]string, 0),
 		staticUrlsMap: map[string]bool{},
 		linkedUrlsMap: map[string]bool{},
 	}
-	return &node, nil
+	return node, nil
 }
 
 func (u *UrlNode) String() string {
-	return u.url.String()
+	return u.BaseUrl.String()
 }
 
 func (u *UrlNode) Process() {
@@ -79,13 +76,17 @@ func (u *UrlNode) Process() {
 				}
 			case "img":
 				val = getTokenKey(token, "src")
-				u.addStaticUrl(val)
+				// Avoid embedded data
+				if strings.HasPrefix(val, "http") {
+					u.addStaticUrl(val)
+				}
 			case "script":
 				val = getTokenKey(token, "src")
 				u.addStaticUrl(val)
 		}
 	}
 	// Step 3: Printing is called by the main thread
+	// fmt.Println("urls end of Process: ", u.LinkedUrls)
 }
 
 func (u *UrlNode) addLinkedUrl(foundUrlStr string) {
@@ -98,11 +99,11 @@ func (u *UrlNode) addLinkedUrl(foundUrlStr string) {
 	if err != nil {
 		return // Skip silently
 	}
-	resolvedUrl := u.url.ResolveReference(foundUrl)
-	if u.url.Host != resolvedUrl.Host {
+	resolvedUrl := u.BaseUrl.ResolveReference(foundUrl)
+	if u.BaseUrl.Host != resolvedUrl.Host {
 		return // Skip URLs on other domains
 	}
-	addUnique(&u.linkedUrls, &u.linkedUrlsMap, resolvedUrl.String())
+	addUnique(&u.LinkedUrls, &u.linkedUrlsMap, resolvedUrl.String())
 }
 
 func (u *UrlNode) addStaticUrl(foundUrlStr string) {
@@ -113,16 +114,14 @@ func (u *UrlNode) addStaticUrl(foundUrlStr string) {
 	if err != nil {
 		return // Skip silently
 	}
-	resolvedUrl := u.url.ResolveReference(foundUrl)
-	addUnique(&u.staticUrls, &u.staticUrlsMap, resolvedUrl.String())
+	resolvedUrl := u.BaseUrl.ResolveReference(foundUrl)
+	addUnique(&u.StaticUrls, &u.staticUrlsMap, resolvedUrl.String())
 }
 
 func (u *UrlNode) PrintResults() {
-	outObj := &PrintUrl{
-		Url: u.url.String(),
-		StaticAssets: u.staticUrls,
-	}
-	outJson, err := json.Marshal(outObj)
+	// fmt.Println("printing")
+	// fmt.Println(u.LinkedUrls)
+	outJson, err := json.Marshal(u)
 	if err != nil {
 		// Don't know why this would fail
 		panic(err)
@@ -131,7 +130,6 @@ func (u *UrlNode) PrintResults() {
 	var out bytes.Buffer
 	json.Indent(&out, outJson, "", "  ")
 	out.WriteTo(os.Stdout)
-	fmt.Print("\n")
 }
 
 // Used for both addLinkedUrl and addStaticUrl. DRY
