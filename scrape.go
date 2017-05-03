@@ -12,21 +12,13 @@ var (
 	MaxUrls  = flag.Int("m", 10, "The max URLs to visit before stopping.")
 )
 
-func worker(id int, queue <-chan *UrlNode, nextUrl chan<- *UrlNode, completions chan<- *UrlNode) {
+func worker(id int, queue <-chan *UrlNode, completions chan<- *UrlNode) {
 	for urlNode := range queue {
 		urlNode.Process()
 		// Bubble up in the background so not blocking & cause worker deadlock
 		// Must pass in by argument vs closure since worker's re-used
 		go func(deferredUrlNode *UrlNode) {
-			defer func() { completions <- deferredUrlNode }()
-			for _, urlStr := range deferredUrlNode.LinkedUrls {
-				new_u, err := NewUrlNode(urlStr)
-				// fmt.Println("after NewUrlNode list", deferredUrlNode.LinkedUrls)
-				// fmt.Println("enqueueing", new_u)
-				if err == nil {
-					nextUrl <- new_u // blocks until worker picks it up
-				}
-			}
+			completions <- deferredUrlNode
 		}(urlNode)
 	}
 }
@@ -35,7 +27,6 @@ func main() {
 	flag.Parse()
 
 	queue := make(chan *UrlNode, 100) // TODO(riley): not sure optimal size
-	nextUrl := make(chan *UrlNode)    // must be blocking to avoid race conditions
 	completions := make(chan *UrlNode)
 
 	// Both urlsVisited and enqueued and  probably could be managed with atomic
@@ -57,7 +48,7 @@ func main() {
 
 	// Start all the workers
 	for w := 1; w <= *NWorkers; w++ {
-		go worker(w, queue, nextUrl, completions)
+		go worker(w, queue, completions)
 	}
 
 	fmt.Println("[") // Manual JSON :-/
@@ -65,14 +56,19 @@ func main() {
 	for {
 		done := false
 		select {
-		case u := <-nextUrl:
-			_, exists := urlsVisiting[u.UrlString]
-			if !exists && len(urlsVisited) < *MaxUrls {
-				queue <- u
-				enqueued++
-				urlsVisiting[u.UrlString] = true
-			}
 		case completed := <-completions:
+			for _, urlStr := range completed.LinkedUrls {
+				new_u, err := NewUrlNode(urlStr)
+				if err != nil {
+					continue
+				}
+				_, exists := urlsVisiting[new_u.UrlString]
+				if !exists && len(urlsVisited) < *MaxUrls {
+					queue <- new_u
+					enqueued++
+					urlsVisiting[new_u.UrlString] = true
+				}
+			}
 			enqueued--
 			urlsVisited[completed.UrlString] = true
 			if len(urlsVisited) > 1 {
@@ -87,8 +83,4 @@ func main() {
 		}
 	}
 	fmt.Print("\n]\n") // Manual JSON :-/
-
-	// Leave some time to show concurrent actions continuing for debugging
-	// fmt.Println("exit")
-	// time.Sleep(100 * time.Millisecond)
 }
