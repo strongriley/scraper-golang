@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
 	// "time"
 )
 
@@ -51,10 +53,24 @@ func main() {
 		go worker(w, queue, completions)
 	}
 
+	// Allow Ctrl-C to terminate the app with valid JSON still
+	interrupt := make(chan os.Signal, 2)
+	signal.Notify(interrupt, os.Interrupt)
+
 	fmt.Println("[") // Manual JSON :-/
 	// Keep going so long as there are URLs to process or we reach the max
 	for {
 		done := false
+		select {
+			case <-interrupt:
+				done = true
+			default:
+		}
+
+		if done {
+			break
+		}
+
 		select {
 		case completed := <-completions:
 			for _, urlStr := range completed.LinkedUrls {
@@ -78,6 +94,7 @@ func main() {
 		default:
 			done = (enqueued == 0)
 		}
+
 		if done || len(urlsVisited) >= *MaxUrls {
 			break
 		}
